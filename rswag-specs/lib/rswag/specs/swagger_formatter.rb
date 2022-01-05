@@ -10,7 +10,7 @@ module Rswag
 
       # NOTE: rspec 2.x support
       if RSPEC_VERSION > 2
-        ::RSpec::Core::Formatters.register self, :example_group_finished, :stop
+        ::RSpec::Core::Formatters.register self, :example_finished, :stop
       end
 
       def initialize(output, config = Rswag::Specs.config)
@@ -18,6 +18,34 @@ module Rswag
         @config = config
 
         @output.puts 'Generating Swagger docs ...'
+      end
+
+      def example_finished(notification)
+        # NOTE: rspec 2.x support
+        metadata = if RSPEC_VERSION > 2
+          notification.example.example_group.metadata
+        else
+          notification.metadata
+        end
+
+        # !metadata[:document] won't work, since nil means we should generate
+        # docs.
+        return if metadata[:document] == false
+        return unless metadata.key?(:response)
+
+        swagger_doc = @config.get_swagger_doc(metadata[:swagger_doc])
+
+        unless doc_version(swagger_doc).start_with?('2')
+          # This is called multiple times per file!
+          # metadata[:operation] is also re-used between examples within file
+          # therefore be careful NOT to modify its content here.
+          upgrade_request_type!(metadata)
+          upgrade_servers!(swagger_doc)
+          upgrade_oauth!(swagger_doc)
+          upgrade_response_produces!(swagger_doc, metadata)
+        end
+
+        swagger_doc.deep_merge!(metadata_to_swagger(metadata))
       end
 
       def example_group_finished(notification)
